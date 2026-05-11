@@ -27,6 +27,14 @@ from .file_processor import (
     VideoSummaryRow,
 )
 from .ai_strategist import AIStrategist, StrategyReport, StrategySection, QueryType
+from .writer_engine import (
+    WriterEngine,
+    ScriptDraft,
+    VerificationReport,
+    VerificationFinding,
+    SectionBudget,
+    Claim,
+)
 from .strategy_engine import StrategyEngine
 from .scenario_generator import ScenarioGenerator
 from .data_processor import DataProcessor
@@ -62,6 +70,12 @@ __all__ = [
     "StrategyReport",
     "StrategySection",
     "QueryType",
+    "WriterEngine",
+    "ScriptDraft",
+    "VerificationReport",
+    "VerificationFinding",
+    "SectionBudget",
+    "Claim",
     "StrategyEngine",
     "ScenarioGenerator",
     "DataProcessor",
