@@ -19,6 +19,13 @@ from .processor import (
     VideoFormat,
     PerformanceTier,
 )
+from .file_processor import (
+    FileProcessor,
+    FileReport,
+    MergedReport,
+    AggregatedStats,
+    VideoSummaryRow,
+)
 from .strategy_engine import StrategyEngine
 from .scenario_generator import ScenarioGenerator
 from .data_processor import DataProcessor
@@ -45,6 +52,11 @@ __all__ = [
     "TechnicalFixItem",
     "VideoFormat",
     "PerformanceTier",
+    "FileProcessor",
+    "FileReport",
+    "MergedReport",
+    "AggregatedStats",
+    "VideoSummaryRow",
     "StrategyEngine",
     "ScenarioGenerator",
     "DataProcessor",
