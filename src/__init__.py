@@ -1,6 +1,13 @@
 from .youtube_client import YouTubeClient, VideoMetrics, ChannelMetrics, CommentData
 from .claude_client import ClaudeClient
 from .ai_handler import AIHandler, PromptContextBuilder
+from .content_creator import (
+    ContentCreator,
+    ScenarioDraft,
+    ValidationReport,
+    ValidationFinding,
+    SectionMetrics,
+)
 from .processor import (
     VideoProcessor,
     VideoAnalyticsInput,
@@ -24,6 +31,11 @@ __all__ = [
     "ClaudeClient",
     "AIHandler",
     "PromptContextBuilder",
+    "ContentCreator",
+    "ScenarioDraft",
+    "ValidationReport",
+    "ValidationFinding",
+    "SectionMetrics",
     "VideoProcessor",
     "VideoAnalyticsInput",
     "ProcessorReport",
