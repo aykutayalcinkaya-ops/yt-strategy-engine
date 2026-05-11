@@ -26,6 +26,7 @@ from .file_processor import (
     AggregatedStats,
     VideoSummaryRow,
 )
+from .ai_strategist import AIStrategist, StrategyReport, StrategySection, QueryType
 from .strategy_engine import StrategyEngine
 from .scenario_generator import ScenarioGenerator
 from .data_processor import DataProcessor
@@ -57,6 +58,10 @@ __all__ = [
     "MergedReport",
     "AggregatedStats",
     "VideoSummaryRow",
+    "AIStrategist",
+    "StrategyReport",
+    "StrategySection",
+    "QueryType",
     "StrategyEngine",
     "ScenarioGenerator",
     "DataProcessor",
