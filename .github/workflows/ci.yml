@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    name: Sözdizimi & Import Kontrolü
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 3.11 kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Bağımlılıkları yükle
+        run: |
+          python -m pip install --upgrade pip
+          # tkinter olmayan ortamda customtkinter'ı atla
+          pip install \
+            anthropic \
+            python-dotenv \
+            httpx \
+            tenacity \
+            pandas \
+            openpyxl \
+            pydantic \
+            rich \
+            google-api-python-client \
+            google-auth
+
+      - name: Tüm .py dosyalarının sözdizimini kontrol et
+        run: |
+          python - <<'EOF'
+          import ast, sys
+          from pathlib import Path
+
+          errors = []
+          files = [
+              p for p in Path(".").rglob("*.py")
+              if not any(part in p.parts for part in
+                         ("venv", ".venv", "build", "dist", "__pycache__"))
+          ]
+          for f in sorted(files):
+              try:
+                  ast.parse(f.read_text(encoding="utf-8"))
+              except SyntaxError as e:
+                  errors.append(f"  ✗  {f}:{e.lineno}  {e.msg}")
+
+          if errors:
+              print("Sözdizimi hatası bulundu:")
+              print("\n".join(errors))
+              sys.exit(1)
+          print(f"✓  {len(files)} dosya — sözdizimi temiz")
+          EOF
+
+      - name: Çekirdek modül importlarını doğrula
+        env:
+          ANTHROPIC_API_KEY: sk-ant-dummy-for-ci
+          YOUTUBE_API_KEY: dummy
+        run: |
+          python - <<'EOF'
+          import importlib.util, sys, types
+
+          # tkinter stub (sunucuda yok)
+          for mod in ("tkinter", "_tkinter",
+                      "tkinter.filedialog", "tkinter.messagebox", "tkinter.ttk"):
+              sys.modules[mod] = types.ModuleType(mod)
+
+          # customtkinter stub
+          ctk_stub = types.ModuleType("customtkinter")
+          for attr in ("CTk","CTkFrame","CTkLabel","CTkButton","CTkEntry",
+                       "CTkTextbox","CTkProgressBar","CTkFont","CTkScrollbar",
+                       "set_appearance_mode","set_default_color_theme"):
+              setattr(ctk_stub, attr, type(attr, (), {"__init__": lambda *a,**k: None}))
+          sys.modules["customtkinter"] = ctk_stub
+
+          def load(path, name):
+              spec = importlib.util.spec_from_file_location(name, path)
+              mod  = importlib.util.module_from_spec(spec)
+              sys.modules[name] = mod
+              spec.loader.exec_module(mod)
+              return mod
+
+          # Bağımsız modüller
+          load("src/file_processor.py", "src.file_processor")
+          print("  ✓  src.file_processor")
+
+          # ai_strategist → writer_engine için stub
+          ai_stub = types.ModuleType("src.ai_strategist")
+          class _SR: pass
+          ai_stub.StrategyReport = _SR
+          sys.modules["src.ai_strategist"] = ai_stub
+
+          load("src/writer_engine.py", "src.writer_engine")
+          print("  ✓  src.writer_engine")
+
+          print("✓  Çekirdek modüller yüklendi")
+          EOF
+
+  structure:
+    name: Proje Yapısı Kontrolü
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Zorunlu dosyalar mevcut mu?
+        run: |
+          python - <<'EOF'
+          from pathlib import Path
+          import sys
+
+          required = [
+              "main.py",
+              "config.py",
+              "requirements.txt",
+              ".env.example",
+              "src/__init__.py",
+              "src/file_processor.py",
+              "src/ai_strategist.py",
+              "src/writer_engine.py",
+              "src/gui_app.py",
+              "Analizler/ORNEK_FORMAT.csv",
+              "outputs/scripts/.gitkeep",
+              "outputs/senaryolar/.gitkeep",
+          ]
+
+          missing = [f for f in required if not Path(f).exists()]
+          if missing:
+              print("Eksik dosyalar:")
+              for f in missing:
+                  print(f"  ✗  {f}")
+              sys.exit(1)
+
+          print(f"✓  {len(required)} zorunlu dosya mevcut")
+          EOF
+
+      - name: .env.example zorunlu değişkenleri içeriyor mu?
+        run: |
+          content=$(cat .env.example)
+          for key in ANTHROPIC_API_KEY CLAUDE_MODEL MAX_TOKENS SCENARIO_MAX_TOKENS OUTPUT_DIR; do
+            if echo "$content" | grep -q "^$key="; then
+              echo "  ✓  $key"
+            else
+              echo "  ✗  $key eksik"
+              exit 1
+            fi
+          done

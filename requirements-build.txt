@@ -1,0 +1,6 @@
+# ── EXE derlemesi için ek bağımlılıklar ──────────────────────────────
+# Kullanım: pip install -r requirements-build.txt
+# Ardından: pyinstaller build_config.spec  (veya scripts/build.bat|sh)
+-r requirements.txt
+pyinstaller>=6.0.0
+pillow>=10.0.0

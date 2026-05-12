@@ -1,15 +1,24 @@
+# ── Çekirdek API ──────────────────────────────────────────────────────
 anthropic>=0.40.0
+python-dotenv>=1.0.0
+httpx>=0.27.0
+tenacity>=9.0.0
+
+# ── Veri işleme ───────────────────────────────────────────────────────
+pandas>=2.2.0
+openpyxl>=3.1.0
+
+# ── Yapılandırma & doğrulama ──────────────────────────────────────────
+pydantic>=2.9.0
+
+# ── Terminal arayüzü ──────────────────────────────────────────────────
+rich>=13.9.0
+
+# ── GUI (isteğe bağlı — python main.py gui) ───────────────────────────
+customtkinter>=5.2.0
+
+# ── YouTube API (isteğe bağlı — YOUTUBE_API_KEY gerektirir) ───────────
 google-api-python-client>=2.150.0
 google-auth>=2.35.0
 google-auth-oauthlib>=1.2.0
 google-auth-httplib2>=0.2.0
-python-dotenv>=1.0.0
-pydantic>=2.9.0
-rich>=13.9.0
-tenacity>=9.0.0
-httpx>=0.27.0
-pandas>=2.2.0
-openpyxl>=3.1.0
-customtkinter>=5.2.0
-pillow>=10.0.0
-pyinstaller>=6.0.0
