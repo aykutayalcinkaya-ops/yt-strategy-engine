@@ -1,13 +1,12 @@
 """
 src/gui_app.py  —  yt-manual-analyzer grafiksel arayüzü
-
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Başlatmak için:
+    python main.py gui
     python -m src.gui_app
-    # veya doğrudan:
     python src/gui_app.py
 
-Gereksinim:
-    pip install customtkinter
+Gereksinim: pip install customtkinter
 """
 
 from __future__ import annotations
@@ -16,6 +15,7 @@ import os
 import queue
 import threading
 import traceback
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
@@ -24,91 +24,95 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Tema ─────────────────────────────────────────────────────────────────── #
+# ── Tema ─────────────────────────────────────────────────────────────── #
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
 
-_ACCENT   = "#1f6aa5"
-_SIDEBAR_W = 200
-_PAD      = 16
+_PAD = 16
 
-# ── Renk paleti ──────────────────────────────────────────────────────────── #
 _C = {
-    "bg":          "#1a1a2e",   # ana arka plan
-    "sidebar":     "#16213e",   # sol panel
-    "card":        "#0f3460",   # kart / iç panel
-    "btn_active":  "#1f6aa5",
-    "btn_hover":   "#2d7fc1",
-    "btn_idle":    "#1e2a3a",
-    "text":        "#e0e0e0",
-    "text_dim":    "#8899aa",
-    "success":     "#2ecc71",
-    "warning":     "#f39c12",
-    "error":       "#e74c3c",
-    "border":      "#1f3a5f",
+    "bg":        "#1a1a2e",
+    "sidebar":   "#16213e",
+    "card":      "#0f3460",
+    "deep":      "#0a2540",
+    "active":    "#1f6aa5",
+    "hover":     "#2d7fc1",
+    "idle":      "#1e2a3a",
+    "text":      "#e0e0e0",
+    "dim":       "#7a8fa6",
+    "border":    "#1f3a5f",
+    "ok":        "#2ecc71",
+    "warn":      "#f39c12",
+    "err":       "#e74c3c",
 }
 
-# ─────────────────────────────────────────────────────────────────────────── #
-#  Yardımcılar                                                                #
-# ─────────────────────────────────────────────────────────────────────────── #
 
-def _thread(fn, *args, **kwargs):
-    """Fonksiyonu daemon thread üzerinde çalıştırır."""
+# ─────────────────────────────────────────────────────────────────────── #
+#  Genel yardımcılar                                                       #
+# ─────────────────────────────────────────────────────────────────────── #
+
+def _in_thread(fn, *args, **kwargs) -> threading.Thread:
+    """Fonksiyonu daemon arka-plan thread'inde çalıştırır."""
     t = threading.Thread(target=fn, args=args, kwargs=kwargs, daemon=True)
     t.start()
     return t
 
 
-# ─────────────────────────────────────────────────────────────────────────── #
-#  Sidebar butonu                                                              #
-# ─────────────────────────────────────────────────────────────────────────── #
+# ─────────────────────────────────────────────────────────────────────── #
+#  Sidebar butonu                                                           #
+# ─────────────────────────────────────────────────────────────────────── #
 
-class _SidebarBtn(ctk.CTkButton):
-    def __init__(self, master, text: str, icon: str, command, **kw):
+class _NavBtn(ctk.CTkButton):
+    def __init__(self, parent, label: str, icon: str, on_click, **kw):
         super().__init__(
-            master,
-            text=f"  {icon}  {text}",
-            command=command,
+            parent,
+            text=f"  {icon}  {label}",
             anchor="w",
             height=44,
             corner_radius=8,
             border_width=0,
-            fg_color=_C["btn_idle"],
-            hover_color=_C["btn_hover"],
+            fg_color=_C["idle"],
+            hover_color=_C["hover"],
             text_color=_C["text"],
             font=ctk.CTkFont(size=14),
+            command=on_click,
             **kw,
         )
 
-    def set_active(self, active: bool):
-        self.configure(fg_color=_C["btn_active"] if active else _C["btn_idle"])
+    def activate(self, flag: bool) -> None:
+        self.configure(fg_color=_C["active"] if flag else _C["idle"])
 
 
-# ─────────────────────────────────────────────────────────────────────────── #
-#  Sekmeler (paneller)                                                         #
-# ─────────────────────────────────────────────────────────────────────────── #
+# ─────────────────────────────────────────────────────────────────────── #
+#  Ortak panel tabanı                                                       #
+# ─────────────────────────────────────────────────────────────────────── #
 
-class _BasePanel(ctk.CTkFrame):
-    """Tüm içerik panellerinin ortak tabanı."""
+class _Panel(ctk.CTkFrame):
+    def __init__(self, parent, **kw):
+        super().__init__(parent, fg_color=_C["bg"], **kw)
 
-    def __init__(self, master, **kw):
-        super().__init__(master, fg_color=_C["bg"], **kw)
+    # ── küçük fabrikalar ──────────────────────────────────────────────
 
-    # Alt sınıflar çağırır —————————————————————
-    def _section_label(self, text: str) -> ctk.CTkLabel:
-        lbl = ctk.CTkLabel(
+    def _label(self, text: str, size: int = 12, bold: bool = False,
+               color: str | None = None) -> ctk.CTkLabel:
+        return ctk.CTkLabel(
             self, text=text,
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=_C["text_dim"],
+            font=ctk.CTkFont(size=size, weight="bold" if bold else "normal"),
+            text_color=color or _C["dim"],
         )
-        return lbl
 
-    def _output_box(self, parent=None) -> ctk.CTkTextbox:
+    def _card(self) -> ctk.CTkFrame:
+        return ctk.CTkFrame(
+            self, fg_color=_C["card"],
+            corner_radius=10, border_width=1, border_color=_C["border"],
+        )
+
+    def _textbox(self, parent=None) -> ctk.CTkTextbox:
         box = ctk.CTkTextbox(
             parent or self,
             font=ctk.CTkFont(family="Courier", size=12),
             text_color=_C["text"],
-            fg_color=_C["card"],
+            fg_color=_C["deep"],
             border_color=_C["border"],
             border_width=1,
             wrap="word",
@@ -116,234 +120,249 @@ class _BasePanel(ctk.CTkFrame):
         )
         return box
 
-    def _write(self, box: ctk.CTkTextbox, text: str, clear: bool = False):
-        """Thread-safe textbox yazımı."""
+    def _progress(self, parent=None) -> ctk.CTkProgressBar:
+        return ctk.CTkProgressBar(
+            parent or self,
+            mode="indeterminate",
+            progress_color=_C["active"],
+            fg_color=_C["card"],
+            height=7,
+        )
+
+    # ── textbox yazma (thread-safe) ──────────────────────────────────
+
+    def _append(self, box: ctk.CTkTextbox, text: str) -> None:
         box.configure(state="normal")
-        if clear:
-            box.delete("0.0", "end")
         box.insert("end", text)
         box.see("end")
         box.configure(state="disabled")
 
-    def _clear(self, box: ctk.CTkTextbox):
+    def _set_text(self, box: ctk.CTkTextbox, text: str) -> None:
+        box.configure(state="normal")
+        box.delete("0.0", "end")
+        box.insert("end", text)
+        box.see("0.0")
+        box.configure(state="disabled")
+
+    def _clear(self, box: ctk.CTkTextbox) -> None:
         box.configure(state="normal")
         box.delete("0.0", "end")
         box.configure(state="disabled")
 
 
-# ── VERİ ANALİZİ PANELİ ─────────────────────────────────────────────────── #
+# ─────────────────────────────────────────────────────────────────────── #
+#  VERİ ANALİZİ PANELİ                                                     #
+# ─────────────────────────────────────────────────────────────────────── #
 
-class DataAnalysisPanel(_BasePanel):
-    def __init__(self, master, status_bar, **kw):
-        super().__init__(master, **kw)
-        self._status = status_bar
-        self._file: Path | None = None
+class DataPanel(_Panel):
+    """
+    Seçilen CSV / Excel dosyasını ya da Analizler/ klasörünü FileProcessor
+    ile okur, AggregatedStats'ı metin kutusuna yazar ve AIStrategist'i
+    çağırır.  Tüm I/O arka-plan thread'inde; GUI hiç donmaz.
+    """
+
+    def __init__(self, parent, status: "_StatusBar", **kw):
+        super().__init__(parent, **kw)
+        self._status = status
+        self._selected_file: Path | None = None
         self._q: queue.Queue = queue.Queue()
         self._build()
-        self._poll()
+        self._poll()         # 100 ms'de bir kuyruk tüketir
 
-    def _build(self):
-        # ── Başlık ──────────────────────────────────────────────────── #
-        ctk.CTkLabel(
-            self,
-            text="Veri Analizi",
-            font=ctk.CTkFont(size=22, weight="bold"),
-            text_color=_C["text"],
-        ).pack(anchor="w", padx=_PAD, pady=(_PAD, 4))
+    # ── arayüz inşası ────────────────────────────────────────────────
 
-        ctk.CTkLabel(
-            self,
-            text="YouTube Studio'dan indirdiğiniz CSV/Excel dosyasını seçin.",
-            font=ctk.CTkFont(size=12),
-            text_color=_C["text_dim"],
+    def _build(self) -> None:
+        # Başlık
+        ctk.CTkLabel(self, text="Veri Analizi",
+                     font=ctk.CTkFont(size=22, weight="bold"),
+                     text_color=_C["text"]).pack(
+            anchor="w", padx=_PAD, pady=(_PAD, 2))
+        self._label(
+            "YouTube Studio'dan indirdiğiniz CSV / Excel dosyasını "
+            "seçin ya da Analizler/ klasörünü doğrudan analiz edin."
         ).pack(anchor="w", padx=_PAD, pady=(0, _PAD))
 
-        # ── Dosya seçimi ─────────────────────────────────────────────── #
-        file_row = ctk.CTkFrame(self, fg_color="transparent")
-        file_row.pack(fill="x", padx=_PAD, pady=(0, 8))
+        # ── Dosya seçim satırı ───────────────────────────────────── #
+        row = ctk.CTkFrame(self, fg_color="transparent")
+        row.pack(fill="x", padx=_PAD, pady=(0, 6))
 
-        self._file_label = ctk.CTkLabel(
-            file_row,
-            text="Dosya seçilmedi",
-            font=ctk.CTkFont(size=12),
-            text_color=_C["text_dim"],
-            anchor="w",
+        self._file_lbl = ctk.CTkLabel(
+            row, text="Henüz dosya seçilmedi",
+            font=ctk.CTkFont(size=12), text_color=_C["dim"], anchor="w",
         )
-        self._file_label.pack(side="left", fill="x", expand=True)
+        self._file_lbl.pack(side="left", fill="x", expand=True)
 
         ctk.CTkButton(
-            file_row,
-            text="📂  Gözat",
-            width=110,
-            height=36,
-            fg_color=_C["btn_active"],
-            hover_color=_C["btn_hover"],
-            font=ctk.CTkFont(size=13),
-            command=self._browse,
+            row, text="📂  Gözat", width=110, height=34,
+            fg_color=_C["active"], hover_color=_C["hover"],
+            font=ctk.CTkFont(size=13), command=self._browse,
         ).pack(side="right", padx=(8, 0))
 
-        # ── Klasör analizi ───────────────────────────────────────────── #
-        folder_row = ctk.CTkFrame(self, fg_color="transparent")
-        folder_row.pack(fill="x", padx=_PAD, pady=(0, _PAD))
-
-        self._folder_label = ctk.CTkLabel(
-            folder_row,
-            text="veya Analizler/ klasöründeki tüm dosyaları analiz et:",
-            font=ctk.CTkFont(size=12),
-            text_color=_C["text_dim"],
-            anchor="w",
+        # ── Analiz butonu (tek dosya) ────────────────────────────── #
+        self._btn_file = ctk.CTkButton(
+            self, text="▶  Seçili Dosyayı Analiz Et",
+            height=40, state="disabled",
+            fg_color=_C["active"], hover_color=_C["hover"],
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=lambda: self._start(folder_mode=False),
         )
-        self._folder_label.pack(side="left", fill="x", expand=True)
+        self._btn_file.pack(fill="x", padx=_PAD, pady=(0, 6))
 
+        # ── Klasör analizi butonu ─────────────────────────────────── #
         ctk.CTkButton(
-            folder_row,
-            text="📁  Klasörü Analiz Et",
-            width=160,
-            height=36,
-            fg_color=_C["btn_idle"],
-            hover_color=_C["btn_hover"],
+            self, text="📁  Analizler/ Klasörünü Analiz Et",
+            height=40,
+            fg_color=_C["idle"], hover_color=_C["hover"],
             font=ctk.CTkFont(size=13),
-            command=self._analyze_folder,
-        ).pack(side="right", padx=(8, 0))
+            command=lambda: self._start(folder_mode=True),
+        ).pack(fill="x", padx=_PAD, pady=(0, _PAD))
 
-        # ── Analiz butonu ────────────────────────────────────────────── #
-        self._analyze_btn = ctk.CTkButton(
-            self,
-            text="▶  Dosyayı Analiz Et",
-            height=42,
-            fg_color=_C["btn_active"],
-            hover_color=_C["btn_hover"],
-            font=ctk.CTkFont(size=14, weight="bold"),
-            state="disabled",
-            command=self._run_analysis,
-        )
-        self._analyze_btn.pack(fill="x", padx=_PAD, pady=(0, _PAD))
+        # ── İlerleme barı ─────────────────────────────────────────── #
+        self._bar = self._progress()
+        self._bar.pack(fill="x", padx=_PAD, pady=(0, 6))
+        self._bar.set(0)
 
-        # ── İlerleme barı ────────────────────────────────────────────── #
-        self._progress = ctk.CTkProgressBar(
-            self, mode="indeterminate",
-            progress_color=_C["btn_active"],
-            fg_color=_C["card"],
-            height=6,
-        )
-        self._progress.pack(fill="x", padx=_PAD, pady=(0, _PAD))
-        self._progress.set(0)
-
-        # ── Sonuç kutusu ─────────────────────────────────────────────── #
-        self._section_label("Analiz Sonuçları").pack(anchor="w", padx=_PAD, pady=(4, 4))
-
-        self._out = self._output_box()
+        # ── Sonuç kutusu ─────────────────────────────────────────── #
+        self._label("Analiz Sonuçları", bold=True).pack(
+            anchor="w", padx=_PAD, pady=(4, 4))
+        self._out = self._textbox()
         self._out.pack(fill="both", expand=True, padx=_PAD, pady=(0, _PAD))
 
-    # ── Olaylar ──────────────────────────────────────────────────────── #
+    # ── Olaylar ──────────────────────────────────────────────────────
 
-    def _browse(self):
+    def _browse(self) -> None:
         path = filedialog.askopenfilename(
             title="CSV / Excel dosyası seçin",
             filetypes=[
                 ("Desteklenen dosyalar", "*.csv *.xlsx *.xls"),
-                ("CSV", "*.csv"),
-                ("Excel", "*.xlsx *.xls"),
+                ("CSV", "*.csv"), ("Excel", "*.xlsx *.xls"),
                 ("Tüm dosyalar", "*.*"),
             ],
         )
         if path:
-            self._file = Path(path)
-            self._file_label.configure(
-                text=self._file.name, text_color=_C["text"]
-            )
-            self._analyze_btn.configure(state="normal")
+            self._selected_file = Path(path)
+            self._file_lbl.configure(
+                text=self._selected_file.name, text_color=_C["text"])
+            self._btn_file.configure(state="normal")
 
-    def _analyze_folder(self):
-        self._file = None
-        self._file_label.configure(
-            text="Analizler/ klasöründeki tüm dosyalar",
-            text_color=_C["text"],
-        )
-        self._analyze_btn.configure(state="normal", text="▶  Klasörü Analiz Et")
-        # Hemen çalıştır
-        self._run_analysis(folder_mode=True)
-
-    def _run_analysis(self, folder_mode: bool = False):
-        self._analyze_btn.configure(state="disabled")
-        self._progress.configure(mode="indeterminate")
-        self._progress.start()
-        self._status.set("Dosyalar okunuyor ve analiz ediliyor…", "info")
+    def _start(self, folder_mode: bool) -> None:
+        if not folder_mode and self._selected_file is None:
+            messagebox.showwarning("Dosya Seçin", "Önce bir dosya seçin.")
+            return
+        self._btn_file.configure(state="disabled")
+        self._bar.configure(mode="indeterminate")
+        self._bar.start()
+        self._status.set("Dosyalar okunuyor…", "info")
         self._clear(self._out)
-        _thread(self._worker, folder_mode=folder_mode)
+        _in_thread(self._worker, folder_mode=folder_mode)
 
-    def _worker(self, folder_mode: bool = False):
+    # ── Arka-plan işçisi ──────────────────────────────────────────────
+    #
+    #  Tüm FileProcessor ve AIStrategist çağrıları burada çalışır.
+    #  GUI thread'i hiç bloklenmez; sonuçlar queue üzerinden iletilir.
+    # ──────────────────────────────────────────────────────────────────
+
+    def _worker(self, folder_mode: bool) -> None:
         try:
+            # Geç import — başlangıçta customtkinter ile çakışmayı önler
             from src.file_processor import FileProcessor
             from src.ai_strategist import AIStrategist, QueryType
 
             fp = FileProcessor()
             self._q.put(("log", "📂  Dosyalar okunuyor…\n"))
 
-            if folder_mode or self._file is None:
+            # ── 1. Dosya / klasör okuma ──────────────────────────── #
+            if folder_mode:
                 merged = fp.load_folder("Analizler")
             else:
-                report = fp.load_file(self._file)
+                report = fp.load_file(self._selected_file)  # type: ignore[arg-type]
                 merged = fp.merge([report])
 
-            if merged.warnings:
-                for w in merged.warnings:
-                    self._q.put(("log", f"⚠  {w}\n"))
+            # Uyarıları ilet
+            for w in merged.warnings:
+                self._q.put(("log", f"⚠  {w}\n"))
 
             if merged.stats is None:
-                self._q.put(("error", "Geçerli veri bulunamadı. Sütun adlarını kontrol edin."))
+                self._q.put(("error",
+                    "Geçerli veri bulunamadı.\n"
+                    "Beklenen sütunlar: Video başlığı, İzlenme sayısı, "
+                    "Tıklama oranı (TO), Ortalama izleme süresi"))
                 return
 
+            # ── 2. İstatistik özetini oluştur ───────────────────── #
             s = merged.stats
-            summary = (
-                f"{'─'*50}\n"
-                f"  Analiz Raporu  ({len(merged.files)} dosya)\n"
-                f"{'─'*50}\n"
-                f"  Toplam video          : {s.total_videos}\n"
-                f"  Toplam izlenme        : {s.total_views:,}\n"
-                f"  Toplam izleme süresi  : {s.total_watch_time_hours:,.1f} saat\n"
-                f"  Ortalama izlenme      : {s.avg_views:,.0f}\n"
-                f"  Medyan izlenme        : {s.median_views:,.0f}\n"
-                f"  Ortalama CTR          : %{s.avg_ctr_pct}\n"
-                f"  Ortalama izleme süresi: {s.avg_watch_fmt}\n"
-                f"  Toplam abone değişimi : {s.total_subscribers_gained:+,}\n"
-                f"{'─'*50}\n\n"
-            )
+            sep = "─" * 52
 
+            lines: list[str] = [
+                f"\n{sep}",
+                f"  Analiz Raporu  —  {len(merged.files)} dosya, "
+                f"{merged.total_rows} video",
+                sep,
+                f"  Toplam video          : {s.total_videos}",
+                f"  Toplam izlenme        : {s.total_views:,}",
+                f"  Toplam izleme süresi  : {s.total_watch_time_hours:,.1f} saat",
+                f"  Ortalama izlenme      : {s.avg_views:,.0f}",
+                f"  Medyan izlenme        : {s.median_views:,.0f}",
+                f"  Ortalama CTR          : %{s.avg_ctr_pct:.1f}",
+                f"  Medyan CTR            : %{s.median_ctr_pct:.1f}",
+                f"  Ort. izleme süresi    : {s.avg_watch_fmt}",
+                f"  Toplam abone değişimi : {s.total_subscribers_gained:+,}",
+            ]
+
+            # CTR dağılımı
+            if s.ctr_distribution:
+                lines.append(f"\n  CTR Dağılımı:")
+                for bucket, count in s.ctr_distribution.items():
+                    lines.append(f"    {bucket}: {count} video")
+
+            # En iyi videolar
             if s.top_performers:
-                summary += "  En Çok İzlenen Videolar:\n"
+                lines.append(f"\n  En Çok İzlenen Videolar:")
                 for i, v in enumerate(s.top_performers, 1):
-                    summary += f"  {i}. {v.title[:55]}\n"
-                    summary += f"     {v.views:,} izlenme  ·  CTR %{v.ctr_pct}  ·  {v.avg_watch_fmt}\n"
-                summary += "\n"
+                    lines.append(
+                        f"    {i}. {v.title[:52]}")
+                    lines.append(
+                        f"       {v.views:,} izl.  ·  "
+                        f"CTR %{v.ctr_pct:.1f}  ·  "
+                        f"Ort. {v.avg_watch_fmt}")
 
+            # Gelişim fırsatları
             if s.underperformers:
-                summary += "  Gelişim Fırsatları:\n"
+                lines.append(f"\n  Gelişim Fırsatları (En Az İzlenen):")
                 for i, v in enumerate(s.underperformers, 1):
-                    summary += f"  {i}. {v.title[:55]}\n"
-                    summary += f"     {v.views:,} izlenme  ·  CTR %{v.ctr_pct}\n"
-                summary += "\n"
+                    lines.append(
+                        f"    {i}. {v.title[:52]}")
+                    lines.append(
+                        f"       {v.views:,} izl.  ·  "
+                        f"CTR %{v.ctr_pct:.1f}")
 
-            self._q.put(("log", summary))
+            lines.append(f"{sep}\n")
+            self._q.put(("log", "\n".join(lines)))
+
+            # ── 3. AI strateji analizi ───────────────────────────── #
             self._q.put(("log", "🤖  AI strateji analizi yapılıyor…\n"))
 
-            strategist = AIStrategist()
+            strategist = AIStrategist(period_label="Son dönem")
             report = strategist.analyze(merged, query=QueryType.CONTENT_FOCUS)
 
-            ai_block = f"{'─'*50}\n  AI Strateji İçgörüleri\n{'─'*50}\n"
-            if report.strengths:
-                ai_block += "\n  Güçlü Yönler:\n"
-                for s_ in report.strengths[:5]:
-                    ai_block += f"  ✓ {s_}\n"
-            if report.primary_recommendation:
-                ai_block += f"\n  Birincil Öneri:\n  → {report.primary_recommendation}\n"
-            if report.action_items:
-                ai_block += "\n  Bu Hafta Yapılacaklar:\n"
-                for i, item in enumerate(report.action_items[:5], 1):
-                    ai_block += f"  {i}. {item}\n"
-            ai_block += "\n"
+            ai_lines: list[str] = [sep, "  AI Strateji İçgörüleri", sep]
 
-            self._q.put(("log", ai_block))
+            if report.strengths:
+                ai_lines.append("\n  Güçlü Yönler:")
+                for item in report.strengths[:6]:
+                    ai_lines.append(f"  ✓  {item}")
+
+            if report.primary_recommendation:
+                ai_lines.append(
+                    f"\n  Birincil Öneri:\n  →  {report.primary_recommendation}")
+
+            if report.action_items:
+                ai_lines.append("\n  Bu Hafta Yapılacaklar:")
+                for i, item in enumerate(report.action_items[:6], 1):
+                    ai_lines.append(f"  {i}.  {item}")
+
+            ai_lines.append(f"\n{sep}\n")
+            self._q.put(("log", "\n".join(ai_lines)))
             self._q.put(("done", None))
 
         except FileNotFoundError as exc:
@@ -351,588 +370,612 @@ class DataAnalysisPanel(_BasePanel):
         except Exception:
             self._q.put(("error", traceback.format_exc()))
 
-    def _poll(self):
-        """GUI thread'inde queue'yu 100ms aralıklarla kontrol eder."""
+    # ── Queue tüketici (GUI thread — 100 ms döngüsü) ─────────────────
+
+    def _poll(self) -> None:
         try:
             while True:
                 kind, data = self._q.get_nowait()
                 if kind == "log":
-                    self._write(self._out, data)
+                    self._append(self._out, data)
                 elif kind == "done":
-                    self._progress.stop()
-                    self._progress.set(1)
-                    self._analyze_btn.configure(state="normal")
-                    self._status.set("Analiz tamamlandı ✓", "success")
+                    self._bar.stop()
+                    self._bar.set(1)
+                    self._btn_file.configure(state="normal")
+                    self._status.set("Analiz tamamlandı ✓", "ok")
                 elif kind == "error":
-                    self._write(self._out, f"\n❌  HATA:\n{data}\n")
-                    self._progress.stop()
-                    self._progress.set(0)
-                    self._analyze_btn.configure(state="normal")
-                    self._status.set("Hata oluştu", "error")
+                    self._append(self._out, f"\n❌  Hata:\n{data}\n")
+                    self._bar.stop()
+                    self._bar.set(0)
+                    self._btn_file.configure(state="normal")
+                    self._status.set("Hata oluştu", "err")
         except queue.Empty:
             pass
         self.after(100, self._poll)
 
 
-# ── SENARYO YAZARI PANELİ ────────────────────────────────────────────────── #
+# ─────────────────────────────────────────────────────────────────────── #
+#  SENARYO YAZARI PANELİ                                                   #
+# ─────────────────────────────────────────────────────────────────────── #
 
-class ScriptWriterPanel(_BasePanel):
-    def __init__(self, master, status_bar, **kw):
-        super().__init__(master, **kw)
-        self._status = status_bar
+class ScriptPanel(_Panel):
+    """
+    WriterEngine'in 4 pasını arka-plan thread'inde sırayla çalıştırır.
+
+    Adım sinyalleri (step 0-3) her _pass_* çağrısından ÖNCE queue'ya eklenir.
+    GUI thread'i sinyali görünce adım göstergesini günceller — bu sayede
+    kullanıcı hangi adımın çalıştığını gerçek zamanlı takip eder.
+
+    Monkey-patch kullanılmaz: WriterEngine'in private metodları doğrudan
+    çağrılır ve sonuç nesnesi (ScriptDraft) elle oluşturulur.
+    """
+
+    _STEP_LABELS = [
+        "1. Taslak",
+        "2. İddiaları Çıkar",
+        "3. Çapraz Doğrula",
+        "4. Düzelt & Tamamla",
+    ]
+    _STEP_STATUS = [
+        "Taslak üretiliyor… (60-90 sn)",
+        "İddialar çıkarılıyor…",
+        "Çapraz doğrulama yapılıyor…",
+        "Düzeltmeler uygulanıyor…",
+    ]
+
+    def __init__(self, parent, status: "_StatusBar", **kw):
+        super().__init__(parent, **kw)
+        self._status = status
         self._q: queue.Queue = queue.Queue()
+        self._script_content: str = ""
         self._build()
         self._poll()
 
-    def _build(self):
-        # ── Başlık ──────────────────────────────────────────────────── #
-        ctk.CTkLabel(
-            self,
-            text="Senaryo Yazarı",
-            font=ctk.CTkFont(size=22, weight="bold"),
-            text_color=_C["text"],
-        ).pack(anchor="w", padx=_PAD, pady=(_PAD, 4))
+    # ── arayüz inşası ────────────────────────────────────────────────
 
-        ctk.CTkLabel(
-            self,
-            text="4 aşamalı pipeline: taslak → iddia çıkarımı → çapraz doğrulama → düzeltme",
-            font=ctk.CTkFont(size=12),
-            text_color=_C["text_dim"],
+    def _build(self) -> None:
+        # Başlık
+        ctk.CTkLabel(self, text="Senaryo Yazarı",
+                     font=ctk.CTkFont(size=22, weight="bold"),
+                     text_color=_C["text"]).pack(
+            anchor="w", padx=_PAD, pady=(_PAD, 2))
+        self._label(
+            "4 aşamalı pipeline: Taslak → İddia Çıkarımı "
+            "→ Çapraz Doğrulama → Düzeltme & Uzunluk Garantisi"
         ).pack(anchor="w", padx=_PAD, pady=(0, _PAD))
 
-        # ── Giriş alanları ───────────────────────────────────────────── #
-        card = ctk.CTkFrame(self, fg_color=_C["card"], corner_radius=10, border_width=1,
-                            border_color=_C["border"])
+        # ── Giriş kartı ──────────────────────────────────────────── #
+        card = self._card()
         card.pack(fill="x", padx=_PAD, pady=(0, _PAD))
 
-        self._section_label("Konu Başlığı *").pack(anchor="w", in_=card, padx=12, pady=(12, 4))
-        self._topic_entry = ctk.CTkEntry(
-            card,
-            placeholder_text="Örn: Kuantum bilgisayarların geleceği",
-            height=40,
-            font=ctk.CTkFont(size=13),
-            fg_color="#0a2540",
-            border_color=_C["border"],
+        self._label("Konu Başlığı *", bold=True).pack(
+            anchor="w", in_=card, padx=12, pady=(12, 2))
+        self._topic = ctk.CTkEntry(
+            card, placeholder_text="Örn: Kuantum bilgisayarların geleceği",
+            height=40, font=ctk.CTkFont(size=13),
+            fg_color=_C["deep"], border_color=_C["border"],
         )
-        self._topic_entry.pack(fill="x", padx=12, pady=(0, 8))
+        self._topic.pack(fill="x", padx=12, pady=(0, 8))
 
-        self._section_label("Video Başlığı (boş bırakılırsa konu başlığı kullanılır)").pack(
-            anchor="w", in_=card, padx=12, pady=(4, 4)
-        )
-        self._title_entry = ctk.CTkEntry(
+        self._label(
+            "Video Başlığı  (boş bırakılırsa konu başlığı kullanılır)",
+            bold=True,
+        ).pack(anchor="w", in_=card, padx=12, pady=(4, 2))
+        self._title = ctk.CTkEntry(
             card,
             placeholder_text="Örn: Kuantum Bilgisayarlar Hayatımızı Nasıl Değiştirecek?",
-            height=40,
-            font=ctk.CTkFont(size=13),
-            fg_color="#0a2540",
-            border_color=_C["border"],
+            height=40, font=ctk.CTkFont(size=13),
+            fg_color=_C["deep"], border_color=_C["border"],
         )
-        self._title_entry.pack(fill="x", padx=12, pady=(0, 8))
+        self._title.pack(fill="x", padx=12, pady=(0, 8))
 
-        self._section_label("Ek Yönergeler (isteğe bağlı)").pack(
-            anchor="w", in_=card, padx=12, pady=(4, 4)
+        self._label("Ek Yönergeler  (isteğe bağlı)", bold=True).pack(
+            anchor="w", in_=card, padx=12, pady=(4, 2))
+        self._extra = ctk.CTkTextbox(
+            card, height=68, font=ctk.CTkFont(size=12),
+            fg_color=_C["deep"], border_color=_C["border"], border_width=1,
         )
-        self._instr_box = ctk.CTkTextbox(
-            card, height=70, font=ctk.CTkFont(size=12),
-            fg_color="#0a2540", border_color=_C["border"], border_width=1,
-        )
-        self._instr_box.pack(fill="x", padx=12, pady=(0, 12))
+        self._extra.pack(fill="x", padx=12, pady=(0, 12))
 
-        # ── Oluştur butonu ───────────────────────────────────────────── #
-        self._gen_btn = ctk.CTkButton(
+        # ── Oluştur butonu ───────────────────────────────────────── #
+        self._btn_gen = ctk.CTkButton(
             self,
             text="✍  12.000 Karakterlik Senaryo Oluştur",
             height=48,
+            fg_color=_C["active"], hover_color=_C["hover"],
             font=ctk.CTkFont(size=15, weight="bold"),
-            fg_color=_C["btn_active"],
-            hover_color=_C["btn_hover"],
-            command=self._run,
+            command=self._start,
         )
-        self._gen_btn.pack(fill="x", padx=_PAD, pady=(0, 8))
+        self._btn_gen.pack(fill="x", padx=_PAD, pady=(0, 8))
 
-        # ── İlerleme barı ────────────────────────────────────────────── #
+        # ── İlerleme barı + durum etiketi ────────────────────────── #
         prog_row = ctk.CTkFrame(self, fg_color="transparent")
-        prog_row.pack(fill="x", padx=_PAD, pady=(0, 4))
+        prog_row.pack(fill="x", padx=_PAD, pady=(0, 6))
 
-        self._progress = ctk.CTkProgressBar(
-            prog_row, mode="indeterminate",
-            progress_color=_C["btn_active"],
-            fg_color=_C["card"],
-            height=8,
+        self._bar = self._progress(prog_row)
+        self._bar.pack(side="left", fill="x", expand=True)
+        self._bar.set(0)
+
+        self._prog_lbl = ctk.CTkLabel(
+            prog_row, text="", width=190,
+            font=ctk.CTkFont(size=11), text_color=_C["dim"],
         )
-        self._progress.pack(side="left", fill="x", expand=True)
-        self._progress.set(0)
+        self._prog_lbl.pack(side="right", padx=(8, 0))
 
-        self._prog_label = ctk.CTkLabel(
-            prog_row, text="", width=140,
-            font=ctk.CTkFont(size=11), text_color=_C["text_dim"],
-        )
-        self._prog_label.pack(side="right", padx=(8, 0))
-
-        # ── Adım göstergesi ──────────────────────────────────────────── #
-        self._step_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._step_frame.pack(fill="x", padx=_PAD, pady=(0, 8))
-        self._step_labels: list[ctk.CTkLabel] = []
-        steps = ["1. Taslak", "2. İddialar", "3. Doğrulama", "4. Düzeltme"]
-        for step in steps:
-            lbl = ctk.CTkLabel(
-                self._step_frame, text=step,
+        # ── Adım göstergesi (4 kutu) ─────────────────────────────── #
+        step_row = ctk.CTkFrame(self, fg_color="transparent")
+        step_row.pack(fill="x", padx=_PAD, pady=(0, 8))
+        self._step_btns: list[ctk.CTkLabel] = []
+        for lbl in self._STEP_LABELS:
+            box = ctk.CTkLabel(
+                step_row, text=lbl,
                 font=ctk.CTkFont(size=11),
-                text_color=_C["text_dim"],
+                text_color=_C["dim"],
                 fg_color=_C["card"],
                 corner_radius=6,
                 padx=8, pady=4,
             )
-            lbl.pack(side="left", padx=(0, 6))
-            self._step_labels.append(lbl)
+            box.pack(side="left", padx=(0, 6))
+            self._step_btns.append(box)
 
-        # ── Senaryo çıkışı ───────────────────────────────────────────── #
-        btn_row = ctk.CTkFrame(self, fg_color="transparent")
-        btn_row.pack(fill="x", padx=_PAD, pady=(0, 4))
+        # ── Çıktı araç çubuğu ────────────────────────────────────── #
+        toolbar = ctk.CTkFrame(self, fg_color="transparent")
+        toolbar.pack(fill="x", padx=_PAD, pady=(0, 4))
 
-        self._section_label("Üretilen Senaryo").pack(side="left", in_=btn_row)
-        ctk.CTkButton(
-            btn_row,
-            text="📋  Kopyala",
-            width=100, height=28,
-            fg_color=_C["btn_idle"],
-            hover_color=_C["btn_hover"],
-            font=ctk.CTkFont(size=12),
-            command=self._copy_output,
-        ).pack(side="right")
-        ctk.CTkButton(
-            btn_row,
-            text="💾  Kaydet",
-            width=100, height=28,
-            fg_color=_C["btn_idle"],
-            hover_color=_C["btn_hover"],
-            font=ctk.CTkFont(size=12),
-            command=self._save_output,
-        ).pack(side="right", padx=(0, 6))
+        self._label("Üretilen Senaryo", bold=True).pack(side="left", in_=toolbar)
 
-        self._out = self._output_box()
+        for icon, tip, fn in [
+            ("📋  Kopyala", "Panoya kopyala", self._copy),
+            ("💾  Kaydet",  "Farklı kaydet",  self._save),
+        ]:
+            ctk.CTkButton(
+                toolbar, text=icon, width=110, height=28,
+                fg_color=_C["idle"], hover_color=_C["hover"],
+                font=ctk.CTkFont(size=12), command=fn,
+            ).pack(side="right", padx=(0, 6))
+
+        # ── Senaryo metin kutusu ─────────────────────────────────── #
+        self._out = self._textbox()
         self._out.pack(fill="both", expand=True, padx=_PAD, pady=(0, _PAD))
 
-    # ── Adım renklendirme ─────────────────────────────────────────────────
+    # ── İç yardımcı: adım renklendirme ──────────────────────────────
 
-    def _set_step(self, idx: int):
-        """idx. adımı vurgular, öncekini tamamlandı olarak işaretler."""
-        for i, lbl in enumerate(self._step_labels):
-            if i < idx:
-                lbl.configure(text_color=_C["success"], fg_color=_C["card"])
-            elif i == idx:
-                lbl.configure(text_color="#ffffff", fg_color=_C["btn_active"])
-            else:
-                lbl.configure(text_color=_C["text_dim"], fg_color=_C["card"])
+    def _highlight_step(self, active: int) -> None:
+        for i, box in enumerate(self._step_btns):
+            if i < active:                          # tamamlandı
+                box.configure(text_color=_C["ok"], fg_color=_C["card"])
+            elif i == active:                       # şu an çalışıyor
+                box.configure(text_color="#ffffff", fg_color=_C["active"])
+            else:                                   # bekleniyor
+                box.configure(text_color=_C["dim"], fg_color=_C["card"])
 
-    # ── Buton eylemleri ───────────────────────────────────────────────────
+    def _reset_steps(self) -> None:
+        for box in self._step_btns:
+            box.configure(text_color=_C["dim"], fg_color=_C["card"])
 
-    def _copy_output(self):
-        content = self._out.get("0.0", "end").strip()
-        if content:
-            self.clipboard_clear()
-            self.clipboard_append(content)
-            self._status.set("Senaryo panoya kopyalandı ✓", "success")
+    # ── Buton eylemleri ──────────────────────────────────────────────
 
-    def _save_output(self):
-        content = self._out.get("0.0", "end").strip()
-        if not content:
-            messagebox.showwarning("Boş İçerik", "Kaydetmek için önce senaryo oluşturun.")
+    def _copy(self) -> None:
+        text = self._script_content
+        if not text:
+            messagebox.showinfo("Boş", "Kopyalanacak senaryo yok.")
+            return
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._status.set("Senaryo panoya kopyalandı ✓", "ok")
+
+    def _save(self) -> None:
+        if not self._script_content:
+            messagebox.showinfo("Boş", "Kaydedilecek senaryo yok.")
             return
         path = filedialog.asksaveasfilename(
             defaultextension=".md",
-            filetypes=[("Markdown", "*.md"), ("Text", "*.txt"), ("Tüm dosyalar", "*.*")],
-            initialfile="senaryo.md",
+            filetypes=[("Markdown", "*.md"), ("Metin", "*.txt"),
+                       ("Tüm dosyalar", "*.*")],
+            initialfile=f"senaryo_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
         )
         if path:
-            Path(path).write_text(content, encoding="utf-8")
-            self._status.set(f"Kaydedildi → {Path(path).name}", "success")
+            Path(path).write_text(self._script_content, encoding="utf-8")
+            self._status.set(f"Kaydedildi → {Path(path).name}", "ok")
 
-    def _run(self):
-        topic = self._topic_entry.get().strip()
+    # ── İşlemi başlat ────────────────────────────────────────────────
+
+    def _start(self) -> None:
+        topic = self._topic.get().strip()
         if not topic:
-            messagebox.showwarning("Eksik Bilgi", "Lütfen konu başlığını girin.")
+            messagebox.showwarning("Eksik Bilgi", "Konu başlığını girin.")
             return
 
-        title = self._title_entry.get().strip() or topic
-        instr = self._instr_box.get("0.0", "end").strip()
+        title = self._title.get().strip() or topic
+        extra = self._extra.get("0.0", "end").strip()
 
-        self._gen_btn.configure(state="disabled")
-        self._progress.configure(mode="indeterminate")
-        self._progress.start()
-        for lbl in self._step_labels:
-            lbl.configure(text_color=_C["text_dim"], fg_color=_C["card"])
+        self._btn_gen.configure(state="disabled")
+        self._bar.configure(mode="indeterminate")
+        self._bar.start()
+        self._reset_steps()
         self._clear(self._out)
-        self._status.set("Senaryo üretiliyor… (2-4 dakika)", "info")
+        self._script_content = ""
+        self._status.set("Senaryo pipeline'ı başlatıldı…", "info")
+        _in_thread(self._worker, topic=topic, title=title, extra=extra)
 
-        _thread(self._worker, topic=topic, title=title, instr=instr)
+    # ── Arka-plan işçisi ──────────────────────────────────────────────
+    #
+    #  WriterEngine'in dört pasını SIRAYLA çağırır.
+    #  Her çağrıdan önce queue'ya ("step", i) sinyali eklenir →
+    #  GUI thread'i adım göstergesini günceller.
+    #
+    #  Bu yaklaşım monkey-patch kullanmaz, @retry decorator'larına
+    #  dokunmaz ve WriterEngine.write() metodundan bağımsızdır.
+    # ──────────────────────────────────────────────────────────────────
 
-    def _worker(self, topic: str, title: str, instr: str):
+    def _worker(self, topic: str, title: str, extra: str) -> None:
         try:
-            from src.writer_engine import WriterEngine
+            # Geç import — GUI başlamadan önce bu modülleri yüklememek
+            # için worker içinde import ediyoruz.  Thread-safe'tir.
+            from src.writer_engine import (
+                WriterEngine,
+                ScriptDraft,
+                _detect_domains,
+                _measure_budgets,
+                _parse_input,
+            )
 
             engine = WriterEngine()
 
-            # Adım ilerleme bildirimleri
-            original_pass_draft     = engine._pass_draft
-            original_pass_extract   = engine._pass_extract_claims
-            original_pass_verify    = engine._pass_verify
-            original_pass_correct   = engine._pass_correct
+            # Girişi ayrıştır  (str → topic / strategy_ctx / source_type)
+            topic_str, strategy_ctx, source_type = _parse_input(topic)
+            title_str = title or topic_str
+            domains   = _detect_domains(topic_str + " " + title_str)
 
-            def _wrap_draft(*a, **kw):
-                self._q.put(("step", 0))
-                return original_pass_draft(*a, **kw)
+            # ── Pas 1: Taslak ────────────────────────────────────── #
+            self._q.put(("step", 0))
+            draft = engine._pass_draft(
+                topic_str, title_str, domains, strategy_ctx, extra)
 
-            def _wrap_extract(*a, **kw):
-                self._q.put(("step", 1))
-                return original_pass_extract(*a, **kw)
+            # ── Pas 2: İddia çıkarımı ────────────────────────────── #
+            self._q.put(("step", 1))
+            claims = engine._pass_extract_claims(draft, domains)
 
-            def _wrap_verify(*a, **kw):
-                self._q.put(("step", 2))
-                return original_pass_verify(*a, **kw)
+            # ── Pas 3: Çapraz doğrulama ──────────────────────────── #
+            self._q.put(("step", 2))
+            verification = engine._pass_verify(draft, claims, domains)
 
-            def _wrap_correct(*a, **kw):
-                self._q.put(("step", 3))
-                return original_pass_correct(*a, **kw)
+            # ── Pas 4: Düzeltme + uzunluk garantisi ──────────────── #
+            self._q.put(("step", 3))
+            final_text, passes = engine._pass_correct(
+                draft, verification, topic_str, title_str)
 
-            engine._pass_draft           = _wrap_draft
-            engine._pass_extract_claims  = _wrap_extract
-            engine._pass_verify          = _wrap_verify
-            engine._pass_correct         = _wrap_correct
-
-            script = engine.write(
-                source=topic, title=title,
-                extra_instructions=instr,
-                auto_save=True,
+            # ── ScriptDraft oluştur ve kaydet ─────────────────────── #
+            budgets = _measure_budgets(final_text)
+            script  = ScriptDraft(
+                topic=topic_str,
+                title=title_str,
+                source_type=source_type,
+                strategy_context=strategy_ctx,
+                domains=domains,
+                content=final_text,
+                char_count=len(final_text),
+                word_count=len(final_text.split()),
+                section_budgets=budgets,
+                verification=verification,
+                passes_completed=passes,
+                created_at=datetime.now().isoformat(),
             )
+            script.saved_path = engine.save(script)
 
             self._q.put(("result", script))
 
+        except EnvironmentError as exc:
+            # Büyük ihtimalle ANTHROPIC_API_KEY eksik
+            self._q.put(("error",
+                f"API anahtarı bulunamadı:\n{exc}\n\n"
+                "Ayarlar sekmesine gidip ANTHROPIC_API_KEY değerini girin."))
         except Exception:
             self._q.put(("error", traceback.format_exc()))
 
-    def _poll(self):
+    # ── Queue tüketici (GUI thread) ──────────────────────────────────
+
+    def _poll(self) -> None:
         try:
             while True:
                 kind, data = self._q.get_nowait()
+
                 if kind == "step":
-                    self._set_step(data)
-                    labels = ["Taslak yazılıyor…", "İddialar çıkarılıyor…",
-                              "Çapraz doğrulanıyor…", "Düzeltmeler uygulanıyor…"]
-                    self._prog_label.configure(text=labels[data])
-                    self._status.set(labels[data], "info")
+                    self._highlight_step(data)
+                    self._prog_lbl.configure(text=self._STEP_STATUS[data])
+                    self._status.set(self._STEP_STATUS[data], "info")
 
                 elif kind == "result":
-                    script = data
-                    self._progress.stop()
-                    self._progress.set(1)
-                    self._gen_btn.configure(state="normal")
-                    for lbl in self._step_labels:
-                        lbl.configure(text_color=_C["success"], fg_color=_C["card"])
-                    self._prog_label.configure(text="Tamamlandı ✓")
+                    script: ScriptDraft = data
+                    self._bar.stop()
+                    self._bar.set(1)
+                    self._btn_gen.configure(state="normal")
+                    # tüm adımları yeşil yap
+                    for box in self._step_btns:
+                        box.configure(text_color=_C["ok"], fg_color=_C["card"])
+                    self._prog_lbl.configure(text="Tamamlandı ✓")
 
-                    len_ok  = script.meets_length
-                    ver_ok  = script.verification.is_clean
-                    summary = (
-                        f"{'─'*60}\n"
-                        f"  {'✓' if len_ok else '⚠'} {script.char_count:,} karakter  ·  "
-                        f"{script.word_count:,} kelime  ·  {script.passes_completed} pas\n"
-                        f"  {'✓' if ver_ok else '⚠'} Doğruluk skoru: "
-                        f"{script.verification.score}/100  ·  "
+                    len_ok = script.meets_length
+                    ver_ok = script.verification.is_clean
+                    sep    = "─" * 54
+
+                    header = (
+                        f"\n{sep}\n"
+                        f"  {'✓' if len_ok else '⚠'} "
+                        f"{script.char_count:,} karakter  ·  "
+                        f"{script.word_count:,} kelime  ·  "
+                        f"{script.passes_completed} pas tamamlandı\n"
+                        f"  {'✓' if ver_ok else '⚠'} "
+                        f"Doğruluk skoru: {script.verification.score}/100  ·  "
                         f"{script.verification.claims_extracted} iddia incelendi\n"
                     )
                     if script.domains:
-                        summary += f"  Alan(lar): {', '.join(script.domains)}\n"
+                        header += f"  Alan(lar): {', '.join(script.domains)}\n"
                     if script.saved_path:
-                        summary += f"  Kaydedildi → {script.saved_path}\n"
-                    summary += f"{'─'*60}\n\n"
+                        header += f"  Kaydedildi → {script.saved_path}\n"
 
-                    self._write(self._out, summary + script.content, clear=True)
-                    self._status.set(
-                        f"Senaryo tamamlandı ✓  —  {script.char_count:,} karakter", "success"
+                    # Bölüm bütçe özeti
+                    header += f"\n  Bölüm Bütçeleri:\n"
+                    for b in script.section_budgets:
+                        icon = {"hedefte": "✓", "kısa": "▲",
+                                "uzun": "▼", "eksik": "✗"}.get(b.status, "?")
+                        header += (
+                            f"    {icon} {b.label:<12} "
+                            f"{b.target_min:,}–{b.target_max:,} kr  →  "
+                            f"{b.actual:,} kr  [{b.status}]\n"
+                        )
+                    header += f"{sep}\n\n"
+
+                    full_text = header + script.content
+                    self._script_content = script.content
+                    self._set_text(self._out, full_text)
+
+                    status_msg = (
+                        f"Senaryo tamamlandı ✓  —  "
+                        f"{script.char_count:,} karakter, "
+                        f"doğruluk {script.verification.score}/100"
                     )
+                    self._status.set(status_msg, "ok")
 
                 elif kind == "error":
-                    self._progress.stop()
-                    self._progress.set(0)
-                    self._gen_btn.configure(state="normal")
-                    self._prog_label.configure(text="Hata")
-                    self._write(self._out, f"\n❌  HATA:\n{data}\n")
-                    self._status.set("Hata oluştu", "error")
+                    self._bar.stop()
+                    self._bar.set(0)
+                    self._btn_gen.configure(state="normal")
+                    self._prog_lbl.configure(text="Hata")
+                    self._set_text(self._out, f"❌  Hata:\n\n{data}")
+                    self._status.set("Senaryo oluşturulamadı", "err")
 
         except queue.Empty:
             pass
         self.after(100, self._poll)
 
 
-# ── AYARLAR PANELİ ───────────────────────────────────────────────────────── #
+# ─────────────────────────────────────────────────────────────────────── #
+#  AYARLAR PANELİ                                                          #
+# ─────────────────────────────────────────────────────────────────────── #
 
-class SettingsPanel(_BasePanel):
-    def __init__(self, master, status_bar, **kw):
-        super().__init__(master, **kw)
-        self._status = status_bar
+class SettingsPanel(_Panel):
+    _FIELDS = [
+        ("ANTHROPIC_API_KEY",   "Anthropic API Anahtarı *",      True),
+        ("YOUTUBE_API_KEY",     "YouTube API Anahtarı (opsiyonel)", False),
+        ("CLAUDE_MODEL",        "Claude Modeli",                  False),
+        ("MAX_TOKENS",          "Maks. Token (genel)",            False),
+        ("SCENARIO_MAX_TOKENS", "Maks. Token (senaryo)",          False),
+        ("OUTPUT_DIR",          "Çıktı Klasörü",                  False),
+    ]
+
+    def __init__(self, parent, status: "_StatusBar", **kw):
+        super().__init__(parent, **kw)
+        self._status = status
+        self._entries: dict[str, ctk.CTkEntry] = {}
         self._build()
 
-    def _build(self):
-        ctk.CTkLabel(
-            self,
-            text="Ayarlar",
-            font=ctk.CTkFont(size=22, weight="bold"),
-            text_color=_C["text"],
-        ).pack(anchor="w", padx=_PAD, pady=(_PAD, 4))
-
-        ctk.CTkLabel(
-            self,
-            text="API anahtarları ve model tercihlerini buradan yapılandırın.",
-            font=ctk.CTkFont(size=12),
-            text_color=_C["text_dim"],
+    def _build(self) -> None:
+        ctk.CTkLabel(self, text="Ayarlar",
+                     font=ctk.CTkFont(size=22, weight="bold"),
+                     text_color=_C["text"]).pack(
+            anchor="w", padx=_PAD, pady=(_PAD, 2))
+        self._label(
+            "API anahtarları ve model tercihlerini yapılandırın. "
+            "Kaydet'e basıldığında .env dosyasına yazılır ve "
+            "ortam değişkenleri anında güncellenir."
         ).pack(anchor="w", padx=_PAD, pady=(0, _PAD))
 
-        card = ctk.CTkFrame(self, fg_color=_C["card"], corner_radius=10,
-                            border_width=1, border_color=_C["border"])
+        # ── API anahtar kartı ─────────────────────────────────────── #
+        card = self._card()
         card.pack(fill="x", padx=_PAD, pady=(0, _PAD))
 
-        fields = [
-            ("ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY", True),
-            ("YOUTUBE_API_KEY (isteğe bağlı)", "YOUTUBE_API_KEY", False),
-            ("Claude Modeli", "CLAUDE_MODEL", False),
-            ("Maks. Token (genel)", "MAX_TOKENS", False),
-            ("Maks. Token (senaryo)", "SCENARIO_MAX_TOKENS", False),
-        ]
-
-        self._entries: dict[str, ctk.CTkEntry] = {}
-
-        for label, env_key, required in fields:
-            ctk.CTkLabel(
-                card,
-                text=label + (" *" if required else ""),
-                font=ctk.CTkFont(size=12, weight="bold"),
-                text_color=_C["text_dim"],
-            ).pack(anchor="w", padx=12, pady=(10, 2))
+        for env_key, label, required in self._FIELDS:
+            self._label(
+                label + (" *" if required else ""), bold=True
+            ).pack(anchor="w", in_=card, padx=12, pady=(10, 2))
 
             entry = ctk.CTkEntry(
-                card,
-                height=38,
-                font=ctk.CTkFont(size=12),
-                fg_color="#0a2540",
-                border_color=_C["border"],
+                card, height=38, font=ctk.CTkFont(size=12),
+                fg_color=_C["deep"], border_color=_C["border"],
                 show="*" if "KEY" in env_key else "",
             )
-            current_val = os.getenv(env_key, "")
-            if current_val:
-                entry.insert(0, current_val)
+            val = os.getenv(env_key, "")
+            if val:
+                entry.insert(0, val)
             entry.pack(fill="x", padx=12, pady=(0, 4))
             self._entries[env_key] = entry
 
         ctk.CTkButton(
-            card,
-            text="💾  .env Dosyasına Kaydet",
-            height=40,
-            fg_color=_C["btn_active"],
-            hover_color=_C["btn_hover"],
-            font=ctk.CTkFont(size=13),
+            card, text="💾  .env Dosyasına Kaydet ve Uygula",
+            height=42, fg_color=_C["active"], hover_color=_C["hover"],
+            font=ctk.CTkFont(size=13, weight="bold"),
             command=self._save_env,
         ).pack(fill="x", padx=12, pady=(8, 12))
 
-        # ── Model bilgisi ────────────────────────────────────────────── #
-        info_card = ctk.CTkFrame(self, fg_color=_C["card"], corner_radius=10,
-                                 border_width=1, border_color=_C["border"])
-        info_card.pack(fill="x", padx=_PAD, pady=(0, _PAD))
+        # ── Model bilgi kartı ─────────────────────────────────────── #
+        info = self._card()
+        info.pack(fill="x", padx=_PAD, pady=(0, _PAD))
 
-        ctk.CTkLabel(
-            info_card,
-            text="Kullanılabilir Modeller",
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=_C["text"],
-        ).pack(anchor="w", padx=12, pady=(12, 4))
+        self._label("Kullanılabilir Claude Modelleri", bold=True).pack(
+            anchor="w", in_=info, padx=12, pady=(12, 6))
 
         models = [
-            ("claude-sonnet-4-6", "Önerilen — hız/kalite dengesi"),
-            ("claude-opus-4-7",   "Maksimum kalite — daha yavaş"),
-            ("claude-haiku-4-5-20251001",  "En hızlı — kısa içerikler için"),
+            ("claude-sonnet-4-6",           "Önerilen — hız / kalite dengesi"),
+            ("claude-opus-4-7",             "Maksimum kalite — daha yavaş"),
+            ("claude-haiku-4-5-20251001",   "En hızlı — kısa içerikler için"),
         ]
-        for model, desc in models:
-            row = ctk.CTkFrame(info_card, fg_color="transparent")
+        for model_id, desc in models:
+            row = ctk.CTkFrame(info, fg_color="transparent")
             row.pack(fill="x", padx=12, pady=2)
             ctk.CTkLabel(
-                row, text=model,
+                row, text=model_id,
                 font=ctk.CTkFont(size=12, weight="bold"),
                 text_color=_C["text"],
             ).pack(side="left")
             ctk.CTkLabel(
                 row, text=f"  —  {desc}",
-                font=ctk.CTkFont(size=12),
-                text_color=_C["text_dim"],
+                font=ctk.CTkFont(size=12), text_color=_C["dim"],
             ).pack(side="left")
-        ctk.CTkLabel(info_card, text="").pack(pady=4)
+        ctk.CTkLabel(info, text="").pack(pady=6)
 
-    def _save_env(self):
+    def _save_env(self) -> None:
         env_path = Path(".env")
-        lines: list[str] = []
+        new_vals = {k: e.get().strip() for k, e in self._entries.items()}
+
+        # Mevcut satırları oku; bilinen anahtarları güncelle
+        existing_lines: list[str] = []
+        updated_keys: set[str] = set()
 
         if env_path.exists():
-            existing = env_path.read_text(encoding="utf-8").splitlines()
-            existing_keys = set()
-            for line in existing:
-                key = line.split("=", 1)[0].strip()
-                if key in self._entries:
-                    val = self._entries[key].get().strip()
+            for raw in env_path.read_text(encoding="utf-8").splitlines():
+                key = raw.split("=", 1)[0].strip()
+                if key in new_vals:
+                    val = new_vals[key]
                     if val:
-                        lines.append(f"{key}={val}")
-                    existing_keys.add(key)
+                        existing_lines.append(f"{key}={val}")
+                    updated_keys.add(key)
                 else:
-                    lines.append(line)
-            for key, entry in self._entries.items():
-                if key not in existing_keys:
-                    val = entry.get().strip()
-                    if val:
-                        lines.append(f"{key}={val}")
-        else:
-            for key, entry in self._entries.items():
-                val = entry.get().strip()
-                if val:
-                    lines.append(f"{key}={val}")
+                    existing_lines.append(raw)
 
-        env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        # Yeni anahtarları ekle
+        for key, val in new_vals.items():
+            if key not in updated_keys and val:
+                existing_lines.append(f"{key}={val}")
 
-        # Ortam değişkenlerini güncelle
-        for key, entry in self._entries.items():
-            val = entry.get().strip()
+        env_path.write_text("\n".join(existing_lines) + "\n", encoding="utf-8")
+
+        # Ortam değişkenlerini anında güncelle
+        for key, val in new_vals.items():
             if val:
                 os.environ[key] = val
 
         load_dotenv(override=True)
-        self._status.set(".env dosyası güncellendi ✓", "success")
+        self._status.set(".env kaydedildi ve ortam değişkenleri güncellendi ✓", "ok")
 
 
-# ── DURUM ÇUBUĞU ─────────────────────────────────────────────────────────── #
+# ─────────────────────────────────────────────────────────────────────── #
+#  Durum çubuğu (pencere alt kısmı)                                        #
+# ─────────────────────────────────────────────────────────────────────── #
 
 class _StatusBar(ctk.CTkFrame):
-    _COLORS = {
-        "info":    _C["text_dim"],
-        "success": _C["success"],
-        "warning": _C["warning"],
-        "error":   _C["error"],
-    }
+    _COLORS = {"ok": "#2ecc71", "warn": "#f39c12",
+               "err": "#e74c3c", "info": "#7a8fa6"}
 
-    def __init__(self, master, **kw):
-        super().__init__(master, fg_color=_C["sidebar"], height=30, corner_radius=0, **kw)
+    def __init__(self, parent, **kw):
+        super().__init__(parent, fg_color=_C["sidebar"],
+                         height=30, corner_radius=0, **kw)
         self._lbl = ctk.CTkLabel(
             self, text="Hazır",
-            font=ctk.CTkFont(size=11),
-            text_color=_C["text_dim"],
-        )
+            font=ctk.CTkFont(size=11), text_color=_C["dim"])
         self._lbl.pack(side="left", padx=12, pady=4)
 
-    def set(self, text: str, kind: str = "info"):
-        self._lbl.configure(text=text, text_color=self._COLORS.get(kind, _C["text_dim"]))
+    def set(self, text: str, kind: str = "info") -> None:
+        self._lbl.configure(
+            text=text, text_color=self._COLORS.get(kind, _C["dim"]))
 
 
-# ─────────────────────────────────────────────────────────────────────────── #
-#  Ana Uygulama                                                                #
-# ─────────────────────────────────────────────────────────────────────────── #
+# ─────────────────────────────────────────────────────────────────────── #
+#  Ana Uygulama Penceresi                                                   #
+# ─────────────────────────────────────────────────────────────────────── #
 
 class App(ctk.CTk):
+    _NAV = [
+        ("Veri Analizi",   "📊", DataPanel),
+        ("Senaryo Yazarı", "✍",  ScriptPanel),
+        ("Ayarlar",        "⚙",  SettingsPanel),
+    ]
+
     def __init__(self):
         super().__init__()
         self.title("yt-manual-analyzer")
-        self.geometry("1100x720")
-        self.minsize(900, 600)
+        self.geometry("1110x740")
+        self.minsize(880, 580)
         self.configure(fg_color=_C["bg"])
-
         self._build()
 
-    def _build(self):
-        # ── Durum çubuğu (altta) ────────────────────────────────────── #
-        self._status_bar = _StatusBar(self)
-        self._status_bar.pack(side="bottom", fill="x")
+    def _build(self) -> None:
+        # Durum çubuğu (altta sabit)
+        self._status = _StatusBar(self)
+        self._status.pack(side="bottom", fill="x")
 
-        # ── Ana layout ──────────────────────────────────────────────── #
-        container = ctk.CTkFrame(self, fg_color=_C["bg"])
-        container.pack(fill="both", expand=True)
+        # Ana container
+        root = ctk.CTkFrame(self, fg_color=_C["bg"])
+        root.pack(fill="both", expand=True)
 
-        # ── Sidebar ─────────────────────────────────────────────────── #
-        sidebar = ctk.CTkFrame(
-            container,
-            width=_SIDEBAR_W,
-            fg_color=_C["sidebar"],
-            corner_radius=0,
-        )
+        # ── Sidebar ──────────────────────────────────────────────── #
+        sidebar = ctk.CTkFrame(root, width=204,
+                               fg_color=_C["sidebar"], corner_radius=0)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
 
-        # Logo
-        ctk.CTkLabel(
-            sidebar,
-            text="yt-manual\nanalyzer",
-            font=ctk.CTkFont(size=16, weight="bold"),
-            text_color=_C["text"],
-            justify="left",
-        ).pack(anchor="w", padx=16, pady=(20, 4))
+        ctk.CTkLabel(sidebar,
+                     text="yt-manual\nanalyzer",
+                     font=ctk.CTkFont(size=16, weight="bold"),
+                     text_color=_C["text"], justify="left"
+                     ).pack(anchor="w", padx=16, pady=(20, 2))
+        ctk.CTkLabel(sidebar,
+                     text="Manuel Analiz  ×  Claude API",
+                     font=ctk.CTkFont(size=10), text_color=_C["dim"]
+                     ).pack(anchor="w", padx=16, pady=(0, 16))
+        ctk.CTkFrame(sidebar, height=1,
+                     fg_color=_C["border"]).pack(fill="x", padx=12)
 
-        ctk.CTkLabel(
-            sidebar,
-            text="Manuel Analiz  ×  Claude API",
-            font=ctk.CTkFont(size=10),
-            text_color=_C["text_dim"],
-        ).pack(anchor="w", padx=16, pady=(0, 20))
+        self._nav_btns: list[_NavBtn] = []
+        self._panels:   dict[str, _Panel] = {}
+        content_area = ctk.CTkFrame(root, fg_color=_C["bg"])
+        content_area.pack(side="left", fill="both", expand=True)
 
-        ctk.CTkFrame(sidebar, height=1, fg_color=_C["border"]).pack(fill="x", padx=12)
+        for name, icon, PanelClass in self._NAV:
+            panel = PanelClass(content_area, self._status)
+            self._panels[name] = panel
 
-        # Menü butonları
-        nav_items = [
-            ("Veri Analizi",   "📊"),
-            ("Senaryo Yazarı", "✍"),
-            ("Ayarlar",        "⚙"),
-        ]
-        self._nav_btns: list[_SidebarBtn] = []
-        for name, icon in nav_items:
-            btn = _SidebarBtn(
-                sidebar, text=name, icon=icon,
-                command=lambda n=name: self._switch(n),
-            )
+            btn = _NavBtn(sidebar, label=name, icon=icon,
+                          on_click=lambda n=name: self._switch(n))
             btn.pack(fill="x", padx=12, pady=(8, 0))
             self._nav_btns.append(btn)
 
-        # Alt boşluk + versiyon
-        ctk.CTkFrame(sidebar, fg_color="transparent").pack(fill="y", expand=True)
-        ctk.CTkLabel(
-            sidebar,
-            text="v1.0.0",
-            font=ctk.CTkFont(size=10),
-            text_color=_C["text_dim"],
-        ).pack(pady=12)
-
-        # ── İçerik alanı ────────────────────────────────────────────── #
-        self._content = ctk.CTkFrame(container, fg_color=_C["bg"])
-        self._content.pack(side="left", fill="both", expand=True)
-
-        self._panels: dict[str, _BasePanel] = {
-            "Veri Analizi":   DataAnalysisPanel(self._content, self._status_bar),
-            "Senaryo Yazarı": ScriptWriterPanel(self._content, self._status_bar),
-            "Ayarlar":        SettingsPanel(self._content, self._status_bar),
-        }
+        # Alt dolgu + versiyon
+        ctk.CTkFrame(sidebar, fg_color="transparent").pack(
+            fill="y", expand=True)
+        ctk.CTkLabel(sidebar, text="v1.1.0",
+                     font=ctk.CTkFont(size=10),
+                     text_color=_C["dim"]).pack(pady=12)
 
         self._switch("Veri Analizi")
 
-    def _switch(self, name: str):
+    def _switch(self, name: str) -> None:
         for panel in self._panels.values():
             panel.pack_forget()
         self._panels[name].pack(fill="both", expand=True)
 
+        nav_names = [n for n, _, _ in self._NAV]
         for i, btn in enumerate(self._nav_btns):
-            labels = ["Veri Analizi", "Senaryo Yazarı", "Ayarlar"]
-            btn.set_active(labels[i] == name)
+            btn.activate(nav_names[i] == name)
 
 
-# ─────────────────────────────────────────────────────────────────────────── #
-#  Giriş noktası                                                               #
-# ─────────────────────────────────────────────────────────────────────────── #
+# ─────────────────────────────────────────────────────────────────────── #
+#  Giriş noktası                                                            #
+# ─────────────────────────────────────────────────────────────────────── #
 
-def launch():
-    """GUI uygulamasını başlatır."""
-    app = App()
-    app.mainloop()
+def launch() -> None:
+    """Grafiksel uygulamayı başlatır (main.py'den çağrılır)."""
+    App().mainloop()
 
 
 if __name__ == "__main__":

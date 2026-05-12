@@ -38,7 +38,12 @@ from .writer_engine import (
 from .strategy_engine import StrategyEngine
 from .scenario_generator import ScenarioGenerator
 from .data_processor import DataProcessor
-from .gui_app import launch as launch_gui
+
+try:
+    from .gui_app import launch as launch_gui
+except ImportError:
+    # customtkinter kurulu değilse GUI atlanır; diğer modüller etkilenmez
+    launch_gui = None  # type: ignore[assignment]
 
 __all__ = [
     "YouTubeClient",
@@ -80,5 +85,4 @@ __all__ = [
     "StrategyEngine",
     "ScenarioGenerator",
     "DataProcessor",
-    "launch_gui",
 ]
