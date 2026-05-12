@@ -572,7 +572,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="YouTube kategori ID (0=tüm, 10=müzik, 20=oyun, 28=teknoloji)")
     p.set_defaults(func=cmd_trending)
 
+    # ── gui ───────────────────────────────────────────────────────── #
+    p = sub.add_parser("gui", help="Grafiksel arayüzü başlat (customtkinter gerekli)")
+    p.set_defaults(func=lambda _: _cmd_gui())
+
     return parser
+
+
+def _cmd_gui() -> None:
+    try:
+        from src.gui_app import launch
+        launch()
+    except ImportError:
+        _err("customtkinter bulunamadı. Yüklemek için:\n  pip install customtkinter")
 
 
 # ──────────────────────────────────────────────────────────────────── #

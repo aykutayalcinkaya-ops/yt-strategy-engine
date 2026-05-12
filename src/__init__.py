@@ -38,6 +38,7 @@ from .writer_engine import (
 from .strategy_engine import StrategyEngine
 from .scenario_generator import ScenarioGenerator
 from .data_processor import DataProcessor
+from .gui_app import launch as launch_gui
 
 __all__ = [
     "YouTubeClient",
@@ -79,4 +80,5 @@ __all__ = [
     "StrategyEngine",
     "ScenarioGenerator",
     "DataProcessor",
+    "launch_gui",
 ]
