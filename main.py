@@ -592,6 +592,11 @@ def _cmd_gui() -> None:
 # ──────────────────────────────────────────────────────────────────── #
 
 def main() -> None:
+    # PyInstaller EXE olarak çalışıyorsa doğrudan GUI başlat
+    if getattr(sys, "frozen", False):
+        _cmd_gui()
+        return
+
     # Argümansız çalışırsa → interaktif mod
     if len(sys.argv) == 1:
         run_interactive()
